@@ -15,7 +15,7 @@ export function init(w: number, h: number) {
       const randomX = Math.random();
       const randomY = Math.random();
       const text = createText();
-      noteBoard.stage.addChild(text);
+      noteBoard.rootContainer.addChild(text);
       text.position.set(800 * 10 * randomX, 600 * 10 * randomY);
     }
   });

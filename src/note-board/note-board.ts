@@ -4,9 +4,11 @@ import {
   Graphics,
   Point,
   Transform,
-  InteractionEvent,
+  FederatedPointerEvent,
   DisplayObject,
   Text,
+  Container,
+  Rectangle,
 } from 'pixi.js';
 import { Tool } from './enums';
 import { copyPoint } from './utils';
@@ -14,40 +16,39 @@ import { ControlPoint } from './control-point';
 import { SelectorTool } from './selector-tool';
 import { Box } from './type';
 import { GroupSelector } from './group-selector';
+import { MyText } from './text';
 
 class NoteBoard extends Application {
   private onLoad?: () => void;
   private viewClientRect?: DOMRect;
   private stageBorder?: Graphics;
-  private minZoom: number = 0.2;
-  private maxZoom: number = 5;
+  private minZoom = 0.2;
+  private maxZoom = 5;
   private curTool: Tool = Tool.Pointer;
-  private touchBlank: boolean = false;
-  private mouseDownPoint: Point = new Point(0, 0);
-  private stageOriginalPos: Point = new Point(0, 0);
+  private touchBlank = false;
+  private mouseDownPoint = new Point(0, 0);
+  private rootContainerOriginalPos = new Point(0, 0);
   private curDragTarget?: DisplayObject;
-  private curDragTargetOriginalPos: Point = new Point(0, 0);
+  private curDragTargetOriginalPos = new Point(0, 0);
   private activeObject?: DisplayObject;
-  private activeObjBorder?: Graphics;
+  private activeObjBorder: Graphics | null=null;
   private activeObjControlPoint?: ControlPoint;
   private rotatingActiveObject = false;
-  private originalAngle: number = 0;
-  private originalCenter: Point = new Point(0, 0);
+  private originalAngle = 0;
+  private originalCenter = new Point(0, 0);
   private selectorTool?: SelectorTool;
   private groupSelector?: GroupSelector;
-  private lastPointerUpTime: number = 0;
+  private lastPointerUpTime = 0;
   private textEditor?: HTMLDivElement;
+  public rootContainer = new Container()
   constructor(args: Partial<IApplicationOptions>) {
     super(args);
 
-    const rootContainer = document.getElementById(
-      'root-container'
-    ) as HTMLDivElement;
-    rootContainer.appendChild(this.view as HTMLCanvasElement);
-
     // window.__PIXI_APP__ = this;
 
-    this.stage.position.set(0, 0);
+    this.stage.eventMode='static'
+    this.rootContainer.eventMode = 'static'
+    this.stage.addChild(this.rootContainer)
 
     this.addStageBorder();
     // this.ticker.add(this.updateStageBorder);
@@ -68,34 +69,34 @@ class NoteBoard extends Application {
       }
     });
 
-    this.renderer.plugins.interaction.on(
+    this.stage.on(
       'pointerdown',
-      (event: InteractionEvent) => {
-        const globalPos = event.data.global;
-        this.stageOriginalPos = copyPoint(this.stage.position);
-        this.mouseDownPoint = new Point(globalPos.x, globalPos.y);
+      (event: FederatedPointerEvent) => {
+        const globalPos = event.global;
+        this.rootContainerOriginalPos = copyPoint(this.rootContainer.position);
+        this.mouseDownPoint = copyPoint(globalPos);
 
         if (this.textEditor) {
           this.deleteTextEditor();
         }
 
-        if (!event.target) {
+        if (event.target === this.stage) {
           // 点到了画布的空白位置
 
           this.touchBlank = true;
           this.removeActiveObject();
 
           if (this.groupSelector) {
-            this.groupSelector.putChildrenBackToStage(this.stage);
-            this.stage.removeChild(this.groupSelector);
+            this.groupSelector.putChildrenBackToRootContainer(this.rootContainer);
+            this.rootContainer.removeChild(this.groupSelector);
             this.removeActiveObject();
           }
 
           if (this.curTool === Tool.Selector) {
-            const stagePos = this.stage.localTransform
+            const rootContainerPos = this.rootContainer.localTransform
               .clone()
               .applyInverse(copyPoint(globalPos));
-            this.selectorTool = new SelectorTool(this, stagePos);
+            this.selectorTool = new SelectorTool(this, rootContainerPos);
           }
         } else {
           if (event.target instanceof ControlPoint) {
@@ -106,27 +107,33 @@ class NoteBoard extends Application {
             this.originalCenter = new Point(
               (tl.x + br.x) / 2,
               (tl.y + br.y) / 2
-            );
-            return;
+            )
+            return
           }
+          
+          if (event.target instanceof MyText || event.target instanceof GroupSelector) {
+            this.curDragTarget = event.target;
+            this.curDragTargetOriginalPos = copyPoint(event.target.position);
 
-          this.curDragTarget = event.target;
-          this.curDragTargetOriginalPos = copyPoint(event.target.position);
-
-          if (this.activeObject && this.activeObject === event.target) {
-            // 如果点击的对象是当前的activeObject，则什么都不做
-          } else {
-            this.removeActiveObject();
-            this.setActiveObject(event.target);
+            if (this.activeObject && this.activeObject === event.target) {
+              // 如果点击的对象是当前的activeObject，则什么都不做
+            } else {
+              this.removeActiveObject();
+              if (this.groupSelector) {
+                this.groupSelector.putChildrenBackToRootContainer(this.rootContainer);
+                this.rootContainer.removeChild(this.groupSelector);
+              }
+              this.setActiveObject(event.target);
+            }
           }
         }
       }
     );
-    this.renderer.plugins.interaction.on(
+    this.stage.on(
       'pointermove',
-      (event: InteractionEvent) => {
-        const globalPos = event.data.global;
-        const stagePos = this.stage.localTransform.applyInverse(
+      (event: FederatedPointerEvent) => {
+        const globalPos = event.global;
+        const rootContainerPos = this.rootContainer.localTransform.applyInverse(
           copyPoint(globalPos)
         );
 
@@ -135,23 +142,23 @@ class NoteBoard extends Application {
             // 拖拽画布
             const dx = globalPos.x - this.mouseDownPoint.x;
             const dy = globalPos.y - this.mouseDownPoint.y;
-            this.stage.position.set(
-              this.stageOriginalPos.x + dx,
-              this.stageOriginalPos.y + dy
+            this.rootContainer.position.set(
+              this.rootContainerOriginalPos.x + dx,
+              this.rootContainerOriginalPos.y + dy
             );
           }
 
           if (this.curTool === Tool.Selector) {
-            this.selectorTool?.move(stagePos);
+            this.selectorTool?.move(rootContainerPos);
           }
         }
         if (this.rotatingActiveObject) {
           // 拖拽控制点
-          const pointerDownStagePos = this.stage.localTransform.applyInverse(
+          const pointerDownStagePos = this.rootContainer.localTransform.applyInverse(
             this.mouseDownPoint
           );
           const curPointerStagePos =
-            this.stage.localTransform.applyInverse(globalPos);
+            this.rootContainer.localTransform.applyInverse(globalPos);
 
           const v1 = new Point(
             pointerDownStagePos.x - this.originalCenter.x,
@@ -178,10 +185,10 @@ class NoteBoard extends Application {
         }
         if (this.curDragTarget) {
           // 拖拽单个对象
-          const startPoint = this.stage.localTransform
+          const startPoint = this.rootContainer.localTransform
             .clone()
             .applyInverse(this.mouseDownPoint);
-          const curPoint = this.stage.localTransform
+          const curPoint = this.rootContainer.localTransform
             .clone()
             .applyInverse(globalPos);
           const dx = curPoint.x - startPoint.x;
@@ -192,27 +199,25 @@ class NoteBoard extends Application {
         }
       }
     );
-    this.renderer.plugins.interaction.on(
-      'pointerup',
-      (event: InteractionEvent) => {
-        this.touchBlank = false;
-        this.curDragTarget = undefined;
-        this.rotatingActiveObject = false;
-        // this.originalAngle
+    const handlePointerUp = (event: FederatedPointerEvent) => {
+      this.touchBlank = false;
+      this.curDragTarget = undefined;
+      this.rotatingActiveObject = false;
 
-        if (this.selectorTool) {
-          this.selectorTool.end();
-          this.selectorTool = undefined;
-        }
-
-        const now = Date.now();
-        const isDoubleClick = now - this.lastPointerUpTime < 200;
-        this.lastPointerUpTime = now;
-        if (isDoubleClick) {
-          this.handleDoubleClick(event);
-        }
+      if (this.selectorTool) {
+        this.selectorTool.end();
+        this.selectorTool = undefined;
       }
-    );
+
+      const now = Date.now();
+      const isDoubleClick = now - this.lastPointerUpTime < 200;
+      this.lastPointerUpTime = now;
+      if (isDoubleClick) {
+        this.handleDoubleClick(event);
+      }
+    }
+    this.stage.on('pointerup',handlePointerUp);
+    this.stage.on('pointerupoutside',handlePointerUp)
   }
   createTextEditor(textTarget: Text) {
     textTarget.visible = false;
@@ -230,7 +235,7 @@ class NoteBoard extends Application {
     this.textEditor = editor;
     editor.oninput = () => {
       textTarget.text = editor.innerText;
-      textTarget.updateTransform();
+      // textTarget.updateTransform();
     };
   }
   updateTextEditor = () => {
@@ -240,7 +245,7 @@ class NoteBoard extends Application {
         return;
       }
 
-      text.updateTransform();
+      // text.updateTransform();
 
       const clientBounding = this.viewClientRect as DOMRect;
       this.textEditor.style.left = `${clientBounding.x}px`;
@@ -260,7 +265,7 @@ class NoteBoard extends Application {
     textObj.visible = true;
     this.textEditor = undefined;
   };
-  handleDoubleClick(event: InteractionEvent) {
+  handleDoubleClick(event: FederatedPointerEvent) {
     const { target } = event;
     if (target instanceof Text) {
       this.createTextEditor(target);
@@ -281,8 +286,8 @@ class NoteBoard extends Application {
     const groupSelector = new GroupSelector();
     const { left, top } = this.getObjectListLeftTop(objList);
     groupSelector.setXAndY(left, top);
-    groupSelector.addChildrenFromStage(objList);
-    this.stage.addChild(groupSelector);
+    groupSelector.addChildrenFromRootContainer(objList);
+    this.rootContainer.addChild(groupSelector);
     this.setActiveObject(groupSelector);
     this.groupSelector = groupSelector;
   }
@@ -317,7 +322,7 @@ class NoteBoard extends Application {
     const border = new Graphics();
     border.lineStyle(3 / this.getZoom(), 0x5b97fc);
     border.drawPolygon(bound);
-    this.stage.addChild(border);
+    this.rootContainer.addChild(border);
     this.activeObjBorder = border;
   }
   updateActiveTargetBorder = () => {
@@ -330,16 +335,16 @@ class NoteBoard extends Application {
   };
   removeActiveTargetBorder() {
     if (this.activeObjBorder) {
-      this.stage.removeChild(this.activeObjBorder);
-      this.activeObjBorder = undefined;
+      this.rootContainer.removeChild(this.activeObjBorder);
+      this.activeObjBorder = null;
     }
   }
   addActiveTargetControlPoint(activeObj: DisplayObject) {
     const controlPoint = new ControlPoint(activeObj);
     this.activeObjControlPoint = controlPoint;
-    controlPoint.interactive = true;
+    controlPoint.eventMode = 'static';
     controlPoint.cursor = 'pointer';
-    this.stage.addChild(controlPoint);
+    this.rootContainer.addChild(controlPoint);
     controlPoint.lineStyle(2 / this.getZoom(), 0xc66965);
     const radius = 5 / this.getZoom();
     controlPoint.beginFill(0xffffff);
@@ -367,19 +372,19 @@ class NoteBoard extends Application {
   };
   removeActiveTargetControlPoint() {
     if (this.activeObjControlPoint) {
-      this.stage.removeChild(this.activeObjControlPoint);
+      this.rootContainer.removeChild(this.activeObjControlPoint);
       this.activeObjControlPoint = undefined;
     }
   }
   applyZoom(oldZoom: number, newZoom: number, pointerGlobalPos: Point) {
-    const oldStageMatrix = this.stage.localTransform.clone();
+    const oldStageMatrix = this.rootContainer.localTransform.clone();
     const oldStagePos = oldStageMatrix.applyInverse(pointerGlobalPos);
     const dx = oldStagePos.x * oldZoom - oldStagePos.x * newZoom;
     const dy = oldStagePos.y * oldZoom - oldStagePos.y * newZoom;
 
-    this.stage.setTransform(
-      this.stage.position.x + dx,
-      this.stage.position.y + dy,
+    this.rootContainer.setTransform(
+      this.rootContainer.position.x + dx,
+      this.rootContainer.position.y + dy,
       newZoom,
       newZoom,
       0,
@@ -388,7 +393,7 @@ class NoteBoard extends Application {
       0,
       0
     );
-    this.stage.transform.updateTransform(new Transform());
+    this.rootContainer.updateTransform()
   }
   getObjectStageBound(obj: DisplayObject) {
     const localBounds = obj.getLocalBounds();
@@ -421,10 +426,10 @@ class NoteBoard extends Application {
   }
   getZoom(): number {
     // stage是宽高等比例缩放的，所以取x或者取y是一样的
-    return this.stage.scale.x;
+    return this.rootContainer.scale.x;
   }
   getStageBounds = () => {
-    const localBounds = this.stage.getLocalBounds();
+    const localBounds = this.rootContainer.getLocalBounds();
     const { x, y, width, height } = localBounds;
     const tl = new Point(x, y);
     const tr = new Point(x + width, y);
@@ -435,7 +440,7 @@ class NoteBoard extends Application {
   addStageBorder = () => {
     const stageBorder = new Graphics();
     this.stageBorder = stageBorder;
-    this.stage.addChild(stageBorder);
+    this.rootContainer.addChild(stageBorder);
     stageBorder.lineStyle(3 / this.getZoom(), 0xcf5b68);
     const stageBounds = this.getStageBounds();
     stageBorder.drawPolygon(stageBounds);
@@ -460,6 +465,7 @@ class NoteBoard extends Application {
         }, 300);
       });
     }
+    this.stage.hitArea=new Rectangle(0,0,w,h)
     this.viewClientRect = (
       this.view as HTMLCanvasElement
     ).getBoundingClientRect();

@@ -42,7 +42,7 @@ function App() {
 
   return (
     <>
-      <div id="root-container">
+      <div id="canvas-wrapper">
         <canvas id="pixi-view" style={{ width, height, userSelect: 'none' }} />
       </div>
       {noteBoard && (

@@ -14,7 +14,7 @@ export class SelectorTool {
     this.p1 = copyPoint(startPoint);
     this.p2 = copyPoint(startPoint);
     this.rect = new Graphics();
-    this.noteBoard.stage.addChild(this.rect);
+    this.noteBoard.rootContainer.addChild(this.rect);
   }
   getRect(): Box {
     const xMin = Math.min(this.p1.x, this.p2.x);
@@ -43,10 +43,10 @@ export class SelectorTool {
     this.drawRect();
   }
   end() {
-    this.noteBoard.stage.removeChild(this.rect);
+    this.noteBoard.rootContainer.removeChild(this.rect);
 
     const selected: DisplayObject[] = [];
-    this.noteBoard.stage.children
+    this.noteBoard.rootContainer.children
       .filter((child) => {
         if (child instanceof Text) {
           return true;

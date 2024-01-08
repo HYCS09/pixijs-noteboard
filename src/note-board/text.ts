@@ -1,8 +1,14 @@
 import { Text } from 'pixi.js';
 
+export class MyText extends Text{
+  constructor(...args: any){
+    super(...args)
+  }
+}
+
 export function createText() {
   const fontSize = 14;
-  const text = new Text(
+  const text = new MyText(
     '床前明月光\n疑是地上霜123\n举头望明月\n低头思故乡asdasd',
     {
       fill: 0x4ca486,
@@ -11,7 +17,7 @@ export function createText() {
       lineHeight: 1.2 * fontSize,
     }
   );
+  text.eventMode = 'static';
   text.cursor = 'pointer';
-  text.interactive = true;
   return text;
 }

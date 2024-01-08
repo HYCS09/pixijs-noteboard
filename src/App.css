@@ -9,7 +9,7 @@ body {
 body,
 html,
 #root,
-#root-container {
+#canvas-wrapper {
   width: 100vw;
   height: 100vh;
 }
@@ -20,7 +20,7 @@ html{
   margin: 0;
 }
 
-#root-container {
+#canvas-wrapper {
   position: absolute;
   left: 0;
   top: 0;
